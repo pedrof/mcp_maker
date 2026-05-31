@@ -218,6 +218,26 @@ async def seeded_models(live_server: AsyncClient) -> None:
             "created_at": now,
             "updated_at": now,
         },
+        {
+            "id": "model-scenario",
+            "name": "Division Readiness",
+            "description": "Test model: scenario engine (scenario + crud + schema_only)",
+            "json_schema": _SCHEMA_ORG_READINESS,
+            "system_prompt": None,
+            "enabled_tool_classes": ["schema_only", "crud", "scenario"],
+            "metrics_config": {
+                "division_count": {"agg": "count"},
+                "avg_personnel_pct": {"agg": "avg", "field": "personnel_pct"},
+                "max_personnel_pct": {"agg": "max", "field": "personnel_pct"},
+                "total_personnel_pct": {"agg": "sum", "field": "personnel_pct"},
+            },
+            "visibility": "public",
+            "owner_sub": "test-user",
+            "status": "published",
+            "current_version": 1,
+            "created_at": now,
+            "updated_at": now,
+        },
     ])
 
 

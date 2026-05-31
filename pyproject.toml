@@ -57,6 +57,7 @@ ignore = ["E501"]
 # cannot safely combine into single with statement as SIM117 suggests
 "backend/tests/test_mcp_gateway.py" = ["SIM117"]
 "backend/tests/test_mcp_crud.py" = ["SIM117"]
+"backend/tests/test_mcp_scenario.py" = ["SIM117"]
 
 [tool.mypy]
 python_version = "3.12"

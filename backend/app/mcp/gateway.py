@@ -16,6 +16,7 @@ from typing import Any
 from app.db import AsyncSessionLocal
 from app.models.model import ForgeModel, ModelStatus
 from app.tools import crud as crud_tools
+from app.tools import scenario as scenario_tools
 from app.tools import schema_only as so_tools
 from pydantic import AnyUrl
 from starlette.requests import Request
@@ -80,6 +81,8 @@ def _build_tool_defs(model: ForgeModel) -> list[types.Tool]:
         tools.extend(so_tools.schema_only_tool_defs(model))
     if "crud" in classes:
         tools.extend(crud_tools.crud_tool_defs(model))
+    if "scenario" in classes:
+        tools.extend(scenario_tools.scenario_tool_defs(model))
     return tools
 
 
@@ -91,6 +94,13 @@ _CRUD_NAMES = {
     "delete_instance",
     "list_instances",
     "query_instances",
+}
+_SCENARIO_NAMES = {
+    "create_scenario",
+    "apply_change",
+    "compute_metrics",
+    "compare_to_baseline",
+    "reset_scenario",
 }
 
 
@@ -144,6 +154,27 @@ async def handle_call_tool(
                 result = await crud_tools.list_instances(args, model, db)
             else:  # query_instances
                 result = await crud_tools.query_instances(args, model, db)
+        return result  # type: ignore[no-any-return]
+
+    if name in _SCENARIO_NAMES:
+        if "scenario" not in classes:
+            raise McpError(
+                types.ErrorData(
+                    code=types.METHOD_NOT_FOUND,
+                    message=f"Tool '{name}' not enabled for model '{model_id}'",
+                )
+            )
+        async with AsyncSessionLocal() as db:
+            if name == "create_scenario":
+                result = await scenario_tools.create_scenario(args, model, db)
+            elif name == "apply_change":
+                result = await scenario_tools.apply_change(args, model, db)
+            elif name == "compute_metrics":
+                result = await scenario_tools.compute_metrics(args, model, db)
+            elif name == "compare_to_baseline":
+                result = await scenario_tools.compare_to_baseline(args, model, db)
+            else:  # reset_scenario
+                result = await scenario_tools.reset_scenario(args, model, db)
         return result  # type: ignore[no-any-return]
 
     raise McpError(
