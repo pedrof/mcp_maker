@@ -52,6 +52,11 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# ClientSession(read, write) depends on read/write from outer streamable_http_client CM —
+# cannot safely combine into single with statement as SIM117 suggests
+"backend/tests/test_mcp_gateway.py" = ["SIM117"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
@@ -61,6 +66,10 @@ plugins = ["sqlalchemy.ext.mypy.plugin"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
+# Tests must use the session event loop so session-scoped fixtures (like
+# live_server which holds session_manager.run()'s anyio task group) are
+# accessible without cross-loop task spawning.
+asyncio_default_test_loop_scope = "session"
 testpaths = ["backend/tests"]
 filterwarnings = [
     "ignore::DeprecationWarning",
