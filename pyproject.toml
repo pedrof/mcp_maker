@@ -56,6 +56,7 @@ ignore = ["E501"]
 # ClientSession(read, write) depends on read/write from outer streamable_http_client CM —
 # cannot safely combine into single with statement as SIM117 suggests
 "backend/tests/test_mcp_gateway.py" = ["SIM117"]
+"backend/tests/test_mcp_crud.py" = ["SIM117"]
 
 [tool.mypy]
 python_version = "3.12"

@@ -4,7 +4,7 @@ Dynamic multi-tenant MCP gateway.
 One Server + one StreamableHTTPSessionManager serve N published models.
 Per-request model resolution: server.request_context.request.path_params["model_id"]
 → Starlette Request built from ASGI scope which FastAPI populates with path params.
-See docs/mcp-notes.md for transport + stateless details.
+See docs/decisions/ADR-002 and docs/mcp-notes.md.
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ from typing import Any
 
 from app.db import AsyncSessionLocal
 from app.models.model import ForgeModel, ModelStatus
+from app.tools import crud as crud_tools
+from app.tools import schema_only as so_tools
 from pydantic import AnyUrl
 from starlette.requests import Request
 
@@ -70,142 +72,26 @@ async def _load_published_model(model_id: str) -> ForgeModel:
     return model
 
 
-# ── Schema-only tool definitions ─────────────────────────────────────────────
+def _build_tool_defs(model: ForgeModel) -> list[types.Tool]:
+    """Union tool definitions for all enabled tool classes."""
+    classes = set(model.enabled_tool_classes)
+    tools: list[types.Tool] = []
+    if "schema_only" in classes:
+        tools.extend(so_tools.schema_only_tool_defs(model))
+    if "crud" in classes:
+        tools.extend(crud_tools.crud_tool_defs(model))
+    return tools
 
 
-def _schema_only_tools(model: ForgeModel) -> list[types.Tool]:
-    return [
-        types.Tool(
-            name="get_schema",
-            description=(
-                f"Return the JSON Schema (Draft 2020-12) for the '{model.name}' model. "
-                "Use this to understand what fields and types are valid for instances."
-            ),
-            inputSchema={"type": "object", "properties": {}, "additionalProperties": False},
-        ),
-        types.Tool(
-            name="describe_model",
-            description=(
-                f"Return metadata about the '{model.name}' model: name, description, "
-                "enabled capabilities, and current version."
-            ),
-            inputSchema={"type": "object", "properties": {}, "additionalProperties": False},
-        ),
-        types.Tool(
-            name="validate_instance",
-            description=(
-                f"Validate a JSON object against the '{model.name}' schema. "
-                "Returns validation errors if the object does not conform."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "data": {
-                        "type": "object",
-                        "description": "The JSON object to validate",
-                    }
-                },
-                "required": ["data"],
-                "additionalProperties": False,
-            },
-        ),
-        types.Tool(
-            name="generate_example",
-            description=(
-                f"Generate a schema-faithful example instance for the '{model.name}' model. "
-                "Useful for understanding expected data shape before creating real instances."
-            ),
-            inputSchema={"type": "object", "properties": {}, "additionalProperties": False},
-        ),
-    ]
-
-
-# ── Tool call implementations ────────────────────────────────────────────────
-
-
-def _tool_get_schema(model: ForgeModel) -> list[types.TextContent]:
-    return [types.TextContent(type="text", text=json.dumps(model.json_schema, indent=2))]
-
-
-def _tool_describe_model(model: ForgeModel) -> list[types.TextContent]:
-    description = {
-        "id": model.id,
-        "name": model.name,
-        "description": model.description,
-        "version": model.current_version,
-        "enabled_tool_classes": model.enabled_tool_classes,
-        "visibility": model.visibility.value,
-        "status": model.status.value,
-    }
-    return [types.TextContent(type="text", text=json.dumps(description, indent=2))]
-
-
-def _tool_validate_instance(
-    model: ForgeModel, arguments: dict[str, Any]
-) -> list[types.TextContent]:
-    import jsonschema
-
-    data = arguments.get("data")
-    if data is None:
-        raise McpError(
-            types.ErrorData(code=types.INVALID_PARAMS, message="'data' argument is required")
-        )
-    try:
-        jsonschema.validate(data, model.json_schema)
-        return [types.TextContent(type="text", text=json.dumps({"valid": True, "errors": []}))]
-    except jsonschema.ValidationError as e:
-        return [
-            types.TextContent(
-                type="text",
-                text=json.dumps({"valid": False, "errors": [e.message]}),
-            )
-        ]
-    except jsonschema.SchemaError as e:
-        raise McpError(
-            types.ErrorData(code=types.INTERNAL_ERROR, message=f"Invalid schema: {e.message}")
-        ) from e
-
-
-def _tool_generate_example(model: ForgeModel) -> list[types.TextContent]:
-    """Generate a minimal schema-faithful example by walking the JSON Schema."""
-    example = _schema_to_example(model.json_schema)
-    return [types.TextContent(type="text", text=json.dumps(example, indent=2))]
-
-
-def _schema_to_example(schema: dict[str, Any]) -> Any:
-    """Recursively build a minimal example value from a JSON Schema node."""
-    if "examples" in schema and schema["examples"]:
-        return schema["examples"][0]
-    if "default" in schema:
-        return schema["default"]
-    if "const" in schema:
-        return schema["const"]
-    if "enum" in schema and schema["enum"]:
-        return schema["enum"][0]
-
-    t = schema.get("type")
-    if t == "object" or (isinstance(t, list) and "object" in t):
-        props = schema.get("properties", {})
-        required = set(schema.get("required", props.keys()))
-        return {
-            k: _schema_to_example(v)
-            for k, v in props.items()
-            if k in required
-        }
-    if t == "array" or (isinstance(t, list) and "array" in t):
-        items = schema.get("items", {"type": "string"})
-        return [_schema_to_example(items)]
-    if t == "string":
-        return schema.get("title", "example")
-    if t == "integer":
-        return schema.get("minimum", 0)
-    if t == "number":
-        return schema.get("minimum", 0.0)
-    if t == "boolean":
-        return True
-    if t == "null":
-        return None
-    return {}
+_SCHEMA_ONLY_NAMES = {"get_schema", "describe_model", "validate_instance", "generate_example"}
+_CRUD_NAMES = {
+    "create_instance",
+    "get_instance",
+    "update_instance",
+    "delete_instance",
+    "list_instances",
+    "query_instances",
+}
 
 
 # ── MCP handler registration ─────────────────────────────────────────────────
@@ -215,25 +101,50 @@ def _schema_to_example(schema: dict[str, Any]) -> Any:
 async def handle_list_tools() -> list[types.Tool]:
     model_id = _current_model_id()
     model = await _load_published_model(model_id)
-    return _schema_only_tools(model)
+    return _build_tool_defs(model)
 
 
-@server.call_tool()  # type: ignore[misc]
+@server.call_tool(validate_input=False)  # type: ignore[misc]
 async def handle_call_tool(
     name: str, arguments: dict[str, Any] | None
 ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
     model_id = _current_model_id()
     model = await _load_published_model(model_id)
+    classes = set(model.enabled_tool_classes)
     args = arguments or {}
 
-    if name == "get_schema":
-        return _tool_get_schema(model)  # type: ignore[return-value]
-    if name == "describe_model":
-        return _tool_describe_model(model)  # type: ignore[return-value]
-    if name == "validate_instance":
-        return _tool_validate_instance(model, args)  # type: ignore[return-value]
-    if name == "generate_example":
-        return _tool_generate_example(model)  # type: ignore[return-value]
+    if name in _SCHEMA_ONLY_NAMES:
+        if "schema_only" not in classes:
+            raise McpError(
+                types.ErrorData(
+                    code=types.METHOD_NOT_FOUND,
+                    message=f"Tool '{name}' not enabled for model '{model_id}'",
+                )
+            )
+        return so_tools.call_schema_only_tool(name, args, model)  # type: ignore[no-any-return]
+
+    if name in _CRUD_NAMES:
+        if "crud" not in classes:
+            raise McpError(
+                types.ErrorData(
+                    code=types.METHOD_NOT_FOUND,
+                    message=f"Tool '{name}' not enabled for model '{model_id}'",
+                )
+            )
+        async with AsyncSessionLocal() as db:
+            if name == "create_instance":
+                result = await crud_tools.create_instance(args, model, db)
+            elif name == "get_instance":
+                result = await crud_tools.get_instance(args, model, db)
+            elif name == "update_instance":
+                result = await crud_tools.update_instance(args, model, db)
+            elif name == "delete_instance":
+                result = await crud_tools.delete_instance(args, model, db)
+            elif name == "list_instances":
+                result = await crud_tools.list_instances(args, model, db)
+            else:  # query_instances
+                result = await crud_tools.query_instances(args, model, db)
+        return result  # type: ignore[no-any-return]
 
     raise McpError(
         types.ErrorData(code=types.METHOD_NOT_FOUND, message=f"Unknown tool: {name}")
@@ -244,7 +155,7 @@ async def handle_call_tool(
 async def handle_list_resources() -> list[types.Resource]:
     model_id = _current_model_id()
     model = await _load_published_model(model_id)
-    return [
+    resources = [
         types.Resource(
             uri=f"schema://{model_id}",  # type: ignore[arg-type]
             name=f"{model.name} — JSON Schema",
@@ -258,6 +169,7 @@ async def handle_list_resources() -> list[types.Resource]:
             mimeType="application/json",
         ),
     ]
+    return resources
 
 
 @server.read_resource()  # type: ignore[misc, no-untyped-call]
