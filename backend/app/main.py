@@ -6,6 +6,8 @@ from typing import Any
 
 import structlog
 from app.api.health import router as health_router
+from app.api.models import router as models_router
+from app.api.versions import router as versions_router
 from app.config import settings
 from app.mcp.gateway import session_manager
 from fastapi import FastAPI
@@ -31,6 +33,8 @@ app = FastAPI(
 )
 
 app.include_router(health_router)
+app.include_router(models_router)
+app.include_router(versions_router)
 
 
 class _MCPGateway:
