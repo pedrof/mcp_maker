@@ -19,6 +19,7 @@ from app.tools import crud as crud_tools
 from app.tools import scenario as scenario_tools
 from app.tools import schema_only as so_tools
 from pydantic import AnyUrl
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 import mcp.types as types
@@ -104,6 +105,76 @@ _SCENARIO_NAMES = {
 }
 
 
+# ── Shared tool dispatcher (reused by gateway handlers and test-session API) ─
+
+
+async def dispatch_tool_call(
+    name: str,
+    args: dict[str, Any],
+    model: ForgeModel,
+    db: AsyncSession,
+) -> Any:
+    """Execute a named tool against a model (any status) with a provided db session.
+
+    Called by:
+    - handle_call_tool (published models via the MCP gateway)
+    - /api/test/session (draft/unpublished models via the authoring API)
+    """
+    classes = set(model.enabled_tool_classes)
+
+    if name in _SCHEMA_ONLY_NAMES:
+        if "schema_only" not in classes:
+            raise McpError(
+                types.ErrorData(
+                    code=types.METHOD_NOT_FOUND,
+                    message=f"Tool '{name}' not enabled for model '{model.id}'",
+                )
+            )
+        return so_tools.call_schema_only_tool(name, args, model)
+
+    if name in _CRUD_NAMES:
+        if "crud" not in classes:
+            raise McpError(
+                types.ErrorData(
+                    code=types.METHOD_NOT_FOUND,
+                    message=f"Tool '{name}' not enabled for model '{model.id}'",
+                )
+            )
+        if name == "create_instance":
+            return await crud_tools.create_instance(args, model, db)
+        if name == "get_instance":
+            return await crud_tools.get_instance(args, model, db)
+        if name == "update_instance":
+            return await crud_tools.update_instance(args, model, db)
+        if name == "delete_instance":
+            return await crud_tools.delete_instance(args, model, db)
+        if name == "list_instances":
+            return await crud_tools.list_instances(args, model, db)
+        return await crud_tools.query_instances(args, model, db)
+
+    if name in _SCENARIO_NAMES:
+        if "scenario" not in classes:
+            raise McpError(
+                types.ErrorData(
+                    code=types.METHOD_NOT_FOUND,
+                    message=f"Tool '{name}' not enabled for model '{model.id}'",
+                )
+            )
+        if name == "create_scenario":
+            return await scenario_tools.create_scenario(args, model, db)
+        if name == "apply_change":
+            return await scenario_tools.apply_change(args, model, db)
+        if name == "compute_metrics":
+            return await scenario_tools.compute_metrics(args, model, db)
+        if name == "compare_to_baseline":
+            return await scenario_tools.compare_to_baseline(args, model, db)
+        return await scenario_tools.reset_scenario(args, model, db)
+
+    raise McpError(
+        types.ErrorData(code=types.METHOD_NOT_FOUND, message=f"Unknown tool: {name}")
+    )
+
+
 # ── MCP handler registration ─────────────────────────────────────────────────
 
 
@@ -120,66 +191,9 @@ async def handle_call_tool(
 ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
     model_id = _current_model_id()
     model = await _load_published_model(model_id)
-    classes = set(model.enabled_tool_classes)
     args = arguments or {}
-
-    if name in _SCHEMA_ONLY_NAMES:
-        if "schema_only" not in classes:
-            raise McpError(
-                types.ErrorData(
-                    code=types.METHOD_NOT_FOUND,
-                    message=f"Tool '{name}' not enabled for model '{model_id}'",
-                )
-            )
-        return so_tools.call_schema_only_tool(name, args, model)  # type: ignore[no-any-return]
-
-    if name in _CRUD_NAMES:
-        if "crud" not in classes:
-            raise McpError(
-                types.ErrorData(
-                    code=types.METHOD_NOT_FOUND,
-                    message=f"Tool '{name}' not enabled for model '{model_id}'",
-                )
-            )
-        async with AsyncSessionLocal() as db:
-            if name == "create_instance":
-                result = await crud_tools.create_instance(args, model, db)
-            elif name == "get_instance":
-                result = await crud_tools.get_instance(args, model, db)
-            elif name == "update_instance":
-                result = await crud_tools.update_instance(args, model, db)
-            elif name == "delete_instance":
-                result = await crud_tools.delete_instance(args, model, db)
-            elif name == "list_instances":
-                result = await crud_tools.list_instances(args, model, db)
-            else:  # query_instances
-                result = await crud_tools.query_instances(args, model, db)
-        return result  # type: ignore[no-any-return]
-
-    if name in _SCENARIO_NAMES:
-        if "scenario" not in classes:
-            raise McpError(
-                types.ErrorData(
-                    code=types.METHOD_NOT_FOUND,
-                    message=f"Tool '{name}' not enabled for model '{model_id}'",
-                )
-            )
-        async with AsyncSessionLocal() as db:
-            if name == "create_scenario":
-                result = await scenario_tools.create_scenario(args, model, db)
-            elif name == "apply_change":
-                result = await scenario_tools.apply_change(args, model, db)
-            elif name == "compute_metrics":
-                result = await scenario_tools.compute_metrics(args, model, db)
-            elif name == "compare_to_baseline":
-                result = await scenario_tools.compare_to_baseline(args, model, db)
-            else:  # reset_scenario
-                result = await scenario_tools.reset_scenario(args, model, db)
-        return result  # type: ignore[no-any-return]
-
-    raise McpError(
-        types.ErrorData(code=types.METHOD_NOT_FOUND, message=f"Unknown tool: {name}")
-    )
+    async with AsyncSessionLocal() as db:
+        return await dispatch_tool_call(name, args, model, db)  # type: ignore[no-any-return]
 
 
 @server.list_resources()  # type: ignore[misc, no-untyped-call]
