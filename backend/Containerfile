@@ -1,35 +1,58 @@
-# Stage 1 — build dependencies
-FROM python:3.12-slim AS builder
+# ── Stage 1: Python deps ─────────────────────────────────────────────────────
+FROM python:3.12-slim AS python-deps
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libpq-dev && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
+# pyproject.toml lives at repo root; build context must be repo root
+COPY pyproject.toml README.md* ./
+# Only the app source is needed for the package install
+COPY backend/app ./backend/app/
+# Install production deps only (no testcontainers, no pytest, no mypy)
+RUN pip install --no-cache-dir --prefix=/install .
 
-# Install build tools
-RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev && rm -rf /var/lib/apt/lists/*
+# ── Stage 2: Optional frontend build ──────────────────────────────────────────
+# Set SKIP_FRONTEND=1 in build args to skip this stage (air-gap / CI).
+# When included, the React SPA is served as static files by the backend.
+FROM node:22-slim AS frontend-builder
+WORKDIR /build
+COPY frontend/package*.json ./
+RUN npm install --ignore-scripts
+COPY frontend/ ./
+RUN npm run build
 
-COPY pyproject.toml .
-RUN pip install --no-cache-dir --prefix=/install ".[dev]" 2>/dev/null || pip install --no-cache-dir --prefix=/install .
-
-# Stage 2 — runtime image (OpenShift restricted-v2 compatible)
+# ── Stage 3: Runtime (OpenShift restricted-v2 compatible) ────────────────────
 FROM python:3.12-slim AS runtime
 
-# Non-root, arbitrary-UID safe: chgrp root + g=u so any UID in group 0 works
+# Non-root + arbitrary-UID safe:
+# OpenShift assigns random UIDs in group 0 (root group), so we make the app
+# directory writable by group 0 so any uid:0 pairing can write logs/tmp.
 RUN groupadd -g 1001 forge && useradd -u 1001 -g forge -s /sbin/nologin forge
 
 WORKDIR /app
-COPY --from=builder /install /usr/local
 
-COPY . .
+# Python packages from builder
+COPY --from=python-deps /install /usr/local
 
-# Make app dirs writable by any UID in group 0 (OpenShift assigns random UIDs in root group)
+# Application source (needed by uvicorn at runtime)
+COPY backend/app ./app/
+# Alembic migrations (run via initContainer Job, not by the app itself)
+COPY backend/migrations ./migrations/
+COPY backend/alembic.ini ./
+
+# Frontend SPA (served as StaticFiles by the backend)
+COPY --from=frontend-builder /build/dist ./static/
+
+# Fix ownership: any UID assigned by OpenShift will be in group 0
 RUN chgrp -R 0 /app && chmod -R g=u /app
 
-# No privileged ports — listen on 8080
 EXPOSE 8080
 
-# Drop to non-root
 USER 1001
 
+# PYTHONPATH=/app so `import app` resolves to /app/app/
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "4"]

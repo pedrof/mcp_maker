@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 import structlog
 from app.api.assist import router as assist_router
 from app.api.health import router as health_router
+from app.api.livez import router as livez_router
 from app.api.models import router as models_router
 from app.api.test_session import router as test_session_router
 from app.api.versions import router as versions_router
@@ -18,6 +20,7 @@ from app.models.model import ForgeModel, ModelStatus, Visibility
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
+from starlette.staticfiles import StaticFiles
 from starlette.types import Receive, Scope, Send
 
 logger = structlog.get_logger(__name__)
@@ -49,6 +52,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(livez_router)
 app.include_router(health_router)
 app.include_router(models_router)
 app.include_router(versions_router)
@@ -112,3 +116,9 @@ class _MCPGateway:
 
 
 app.mount("/mcp", _MCPGateway())
+
+# Serve frontend SPA if dist exists (built into image at /app/static/).
+# In dev, Vite serves on :5173 instead.
+_static_dir = Path(__file__).parent.parent / "static"
+if _static_dir.exists():
+    app.mount("/", StaticFiles(directory=_static_dir, html=True), name="frontend")

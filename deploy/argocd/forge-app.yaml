@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: forge
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://git.shadyknollcave.io/micro/mcp_maker
+    targetRevision: main
+    path: deploy/kustomize/overlays/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: forge
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        maxDuration: 3m
+        factor: 2

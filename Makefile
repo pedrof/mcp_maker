@@ -49,7 +49,7 @@ migrate-new: venv
 # ── Container build ──────────────────────────────────────────────────────────
 
 build:
-	podman build -t $(REGISTRY)-backend:$(IMAGE_TAG) $(BACKEND_DIR) -f $(BACKEND_DIR)/Containerfile
+	podman build -t $(REGISTRY)-backend:$(IMAGE_TAG) . -f $(BACKEND_DIR)/Containerfile
 
 push: build
 	podman push $(REGISTRY)-backend:$(IMAGE_TAG)

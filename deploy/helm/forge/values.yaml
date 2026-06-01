@@ -1,0 +1,95 @@
+# FORGE Helm values — override per environment.
+# Secrets (DATABASE_URL, ANTHROPIC_API_KEY, OIDC_CLIENT_SECRET) must be
+# provided via an external Secret; see deploy/helm/forge/templates/secret.yaml.
+
+# ── Platform toggle ───────────────────────────────────────────────────────────
+# "k3s" → Ingress with Cilium + Let's Encrypt
+# "openshift" → Route + OpenShift TLS passthrough
+platform: k3s
+
+# ── Image ─────────────────────────────────────────────────────────────────────
+image:
+  repository: git.shadyknollcave.io/micro/forge-backend
+  tag: "latest"
+  pullPolicy: IfNotPresent
+  # Pin by digest post-push:
+  # digest: sha256:...
+
+# ── Replicas + scaling ────────────────────────────────────────────────────────
+replicaCount: 2
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 70
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 512Mi
+
+# ── Service ───────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 8080
+
+# ── Ingress (K3s / Cilium) ────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: cilium
+  host: forge.shadyknollcave.io
+  tlsSecretName: forge-tls
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+# ── OpenShift Route ───────────────────────────────────────────────────────────
+route:
+  enabled: false
+  host: forge.apps.cluster.example.com
+  termination: edge
+
+# ── App config (non-secret) ───────────────────────────────────────────────────
+config:
+  debug: "false"
+  anthropicModel: "claude-sonnet-4-20250514"
+  # Comma-separated CORS origins (production frontend URL)
+  corsOrigins: "https://forge.shadyknollcave.io"
+  # Leave empty to use real Anthropic API; set to LiteLLM URL for air-gap
+  anthropicBaseUrl: ""
+  oidcIssuer: ""
+  oidcClientId: ""
+
+# ── Secret reference ──────────────────────────────────────────────────────────
+# The chart creates a Secret from these values.
+# In production: leave these empty and supply via SealedSecret or external-secrets.
+# The chart will create a placeholder Secret if existingSecret is not set.
+existingSecret: ""   # set to name of a pre-existing Secret to skip chart-managed Secret
+
+secrets:
+  databaseUrl: ""          # postgresql+asyncpg://...
+  anthropicApiKey: ""
+  oidcClientSecret: ""
+
+# ── Security context (OpenShift restricted-v2 compatible) ────────────────────
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  runAsNonRoot: true
+  readOnlyRootFilesystem: false   # uvicorn writes tmp files
+
+# ── Migrations initContainer ──────────────────────────────────────────────────
+migrations:
+  enabled: true
+  # Runs `alembic upgrade head` as an initContainer before the app starts.
+  # Uses the same image as the main container.

@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: forge
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: cilium
+  tls:
+    - hosts: [forge.shadyknollcave.io]
+      secretName: forge-tls
+  rules:
+    - host: forge.shadyknollcave.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: forge
+                port: { number: 8080 }

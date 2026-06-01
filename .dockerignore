@@ -1,0 +1,27 @@
+.git
+.venv
+.mypy_cache
+.ruff_cache
+.pytest_cache
+__pycache__
+*.pyc
+*.pyo
+
+# Frontend build artifacts (builder stage handles these from source)
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# Test / dev files not needed in runtime image
+backend/tests
+backend/.coverage
+coverage.xml
+
+# Editor
+.vscode
+.idea
+*.swp
+
+# Secrets — never in images
+.env
+.env.*

@@ -1,0 +1,17 @@
+{{- if and .Values.route.enabled (eq .Values.platform "openshift") }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "forge.fullname" . }}
+  labels: {{ include "forge.labels" . | nindent 4 }}
+spec:
+  host: {{ .Values.route.host }}
+  to:
+    kind: Service
+    name: {{ include "forge.fullname" . }}
+  port:
+    targetPort: 8080
+  tls:
+    termination: {{ .Values.route.termination }}
+    insecureEdgeTerminationPolicy: Redirect
+{{- end }}
