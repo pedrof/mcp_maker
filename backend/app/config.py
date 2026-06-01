@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # anthropic==0.52.0 known good: claude-sonnet-4-20250514, claude-3-5-haiku-20241022
     anthropic_model: str = "claude-sonnet-4-20250514"
 
+    # CORS — add production origin via env var
+    # Default allows Vite dev server + same-host access
+    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:4173"]
+
     # Per-model rate limiting (requests/minute)
     rate_limit_rpm: int = 60
 

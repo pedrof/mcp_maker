@@ -13,6 +13,7 @@ from app.api.versions import router as versions_router
 from app.config import settings
 from app.mcp.gateway import session_manager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.types import Receive, Scope, Send
 
 logger = structlog.get_logger(__name__)
@@ -32,6 +33,16 @@ app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     lifespan=lifespan,
+)
+
+# Allow Vite dev server and production origins.
+# In production, set CORS_ORIGINS env var to the actual domain.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(health_router)

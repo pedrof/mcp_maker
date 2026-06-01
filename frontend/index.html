@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FORGE · MCP Authoring Platform</title>
+    <!--
+      Fonts: loaded from Google Fonts when VITE_AIRGAP is not set.
+      For air-gapped / offline deployments, set VITE_AIRGAP=1 and
+      serve the fonts locally (see docs/airgap-deployment.md).
+      The app falls back gracefully to system monospace fonts when
+      Google Fonts is unreachable — all UI remains functional.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Syne:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
