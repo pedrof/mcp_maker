@@ -59,6 +59,7 @@ ignore = ["E501"]
 "backend/tests/test_mcp_crud.py" = ["SIM117"]
 "backend/tests/test_mcp_scenario.py" = ["SIM117"]
 "backend/tests/test_api_lifecycle.py" = ["SIM117"]
+"backend/tests/test_auth.py" = ["SIM117"]
 
 [tool.mypy]
 python_version = "3.12"

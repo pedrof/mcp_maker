@@ -137,6 +137,12 @@ async def live_server(migrated_db: None) -> AsyncClient:
     manager_task: asyncio.Task[None] = asyncio.ensure_future(run_manager())
     await started_event.wait()
 
+    # Override get_current_owner for the entire session so every existing test
+    # that hits /api/* routes gets the seeded owner without a real JWT.
+    # Auth tests that need a different owner override locally.
+    from app.api.deps import get_current_owner
+    app.dependency_overrides[get_current_owner] = lambda: "anonymous"
+
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
@@ -146,6 +152,7 @@ async def live_server(migrated_db: None) -> AsyncClient:
 
     stop_event.set()
     await manager_task
+    app.dependency_overrides.pop(get_current_owner, None)
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)

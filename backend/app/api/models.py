@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import secrets
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 import jsonschema
 import jsonschema.exceptions
 from app.api.deps import DbDep, OwnerDep
+from app.auth.oidc import hash_api_key
 from app.models.model import ForgeModel, ModelStatus, ModelVersion, Visibility
 from app.schemas.models import (
     ModelCreate,
@@ -191,6 +193,14 @@ async def publish_model(
     model.current_version = new_version
     model.status = ModelStatus.published
     model.updated_at = datetime.now(UTC)
+
+    # Per-model bearer key — generate-once-if-null (stable across re-publishes;
+    # rotate by unpublishing, clearing the hash via PATCH, then re-publishing).
+    plaintext_key: str | None = None
+    if model.visibility == Visibility.protected and not model.api_key_hash:
+        plaintext_key = secrets.token_urlsafe(32)
+        model.api_key_hash = hash_api_key(plaintext_key)
+
     await db.commit()
 
     return PublishResponse(
@@ -198,6 +208,7 @@ async def publish_model(
         version=new_version,
         status="published",
         mcp_endpoint=f"/mcp/{model.id}",
+        api_key=plaintext_key,  # None for public models or when key already existed
     )
 
 

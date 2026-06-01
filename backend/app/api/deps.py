@@ -1,24 +1,16 @@
-"""FastAPI dependencies for the authoring API.
-
-owner_sub is a stub returning a constant — replaced by OIDC in Phase 8.
-"""
+"""FastAPI dependencies for the authoring API."""
 
 from __future__ import annotations
 
 from typing import Annotated
 
+from app.auth.oidc import get_current_owner as _get_current_owner
 from app.db import get_db
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# Phase 8 will replace this with a real OIDC token dependency
-ANONYMOUS_OWNER = "anonymous"
-
-
-def get_current_owner() -> str:
-    """Stub: returns a constant owner subject. Replaced by OIDC in Phase 8."""
-    return ANONYMOUS_OWNER
-
+# Re-export so callers can import from one place and tests can override here.
+get_current_owner = _get_current_owner
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
 OwnerDep = Annotated[str, Depends(get_current_owner)]

@@ -102,3 +102,6 @@ class PublishResponse(BaseModel):
     version: int
     status: str
     mcp_endpoint: str
+    # Only present when visibility=protected and a new key was generated.
+    # This is the only time the plaintext key is returned — store it now.
+    api_key: str | None = None
